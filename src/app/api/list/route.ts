@@ -4,26 +4,50 @@ import { NextResponse } from 'next/server'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+export type APKEntry = {
+  url: string
+  pathname: string
+  label: string
+  size: number
+  uploadedAt: string
+}
+
+export type GroupedAPKs = Record<string, APKEntry[]>
+
 export async function GET() {
   const { blobs } = await list()
 
-  const apks = blobs
-    .filter((b) => b.pathname.endsWith('.apk') || b.pathname.includes('android'))
-    .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
-    .map((b) => ({
+  const grouped: GroupedAPKs = {}
+
+  for (const b of blobs) {
+    if (!b.pathname.endsWith('.apk') && !b.pathname.includes('android')) continue
+
+    const parts = b.pathname.split('/')
+    const project = parts.length > 1 ? parts[0] : 'Sonstige'
+    const filename = parts[parts.length - 1]
+
+    const entry: APKEntry = {
       url: b.url,
       pathname: b.pathname,
-      label: decodeLabel(b.pathname),
+      label: decodeLabel(filename),
       size: b.size,
-      uploadedAt: b.uploadedAt,
-    }))
+      uploadedAt: b.uploadedAt instanceof Date ? b.uploadedAt.toISOString() : String(b.uploadedAt),
+    }
 
-  return NextResponse.json(apks)
+    if (!grouped[project]) grouped[project] = []
+    grouped[project].push(entry)
+  }
+
+  for (const project of Object.keys(grouped)) {
+    grouped[project].sort(
+      (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
+    )
+  }
+
+  return NextResponse.json(grouped)
 }
 
-function decodeLabel(pathname: string): string {
-  // Format: timestamp_label.apk → extract label part
-  const name = pathname.split('/').pop() || pathname
-  const match = name.match(/^\d+_(.+)$/)
-  return match ? match[1].replace(/_/g, ' ').replace(/\.apk$/, '') : name.replace(/\.apk$/, '')
+function decodeLabel(filename: string): string {
+  const match = filename.match(/^\d+_(.+)$/)
+  return match ? match[1].replace(/\.apk$/i, '') : filename.replace(/\.apk$/i, '')
 }
