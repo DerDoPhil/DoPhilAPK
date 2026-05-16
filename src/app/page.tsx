@@ -3,8 +3,8 @@
 import { useEffect, useState, useCallback } from 'react'
 
 type APKEntry = {
+  id: number
   url: string
-  pathname: string
   label: string
   size: number
   uploadedAt: string
@@ -27,14 +27,13 @@ function formatDate(iso: string): string {
   })
 }
 
-const PROJECT_COLORS: Record<string, string> = {
-  NormiesAPK:  '#2563eb',
-  BitfaunaAPK: '#7c3aed',
-  Sonstige:    '#374151',
-}
-
+// One distinct color per project, cycling through a palette
+const PALETTE = ['#2563eb', '#7c3aed', '#0e7490', '#b45309', '#15803d', '#be185d']
+const colorCache: Record<string, string> = {}
+let colorIndex = 0
 function projectColor(name: string): string {
-  return PROJECT_COLORS[name] ?? '#0e7490'
+  if (!colorCache[name]) colorCache[name] = PALETTE[colorIndex++ % PALETTE.length]
+  return colorCache[name]
 }
 
 function APKCard({
@@ -44,7 +43,7 @@ function APKCard({
 }: {
   apk: APKEntry
   isLatest: boolean
-  onDelete: (url: string) => void
+  onDelete: (id: number) => void
 }) {
   const [deleting, setDeleting] = useState(false)
 
@@ -55,9 +54,9 @@ function APKCard({
       const res = await fetch('/api/delete', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: apk.url }),
+        body: JSON.stringify({ assetId: apk.id }),
       })
-      if (res.ok) onDelete(apk.url)
+      if (res.ok) onDelete(apk.id)
     } finally {
       setDeleting(false)
     }
@@ -140,11 +139,10 @@ function APKCard({
             border: '1px solid #3a1a1a',
             color: deleting ? '#555' : '#e05050',
             fontWeight: 600,
-            fontSize: 13,
+            fontSize: 14,
             padding: '8px 12px',
             borderRadius: 7,
             cursor: deleting ? 'not-allowed' : 'pointer',
-            transition: 'background 0.15s',
           }}
           onMouseEnter={(e) => {
             if (!deleting) (e.currentTarget as HTMLButtonElement).style.background = '#2a0d0d'
@@ -167,38 +165,21 @@ function ProjectGroup({
 }: {
   name: string
   apks: APKEntry[]
-  onDelete: (url: string) => void
+  onDelete: (id: number) => void
 }) {
-  const color = projectColor(name)
-
   return (
     <div style={{ marginBottom: 32 }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          marginBottom: 12,
-        }}
-      >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <div
           style={{
             width: 12,
             height: 12,
             borderRadius: 3,
-            background: color,
+            background: projectColor(name),
             flexShrink: 0,
           }}
         />
-        <h2
-          style={{
-            margin: 0,
-            fontSize: 16,
-            fontWeight: 700,
-            color: '#ccc',
-            letterSpacing: 0.3,
-          }}
-        >
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#ccc', letterSpacing: 0.3 }}>
           {name}
         </h2>
         <span style={{ color: '#444', fontSize: 13 }}>
@@ -208,7 +189,7 @@ function ProjectGroup({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {apks.map((apk, i) => (
-          <APKCard key={apk.url} apk={apk} isLatest={i === 0} onDelete={onDelete} />
+          <APKCard key={apk.id} apk={apk} isLatest={i === 0} onDelete={onDelete} />
         ))}
       </div>
     </div>
@@ -220,15 +201,12 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const load = useCallback(() => {
+  useEffect(() => {
     fetch('/api/list')
       .then((r) => r.json())
       .then((data) => {
-        if (data && typeof data === 'object' && !Array.isArray(data)) {
-          setGrouped(data)
-        } else {
-          setError('Fehler beim Laden')
-        }
+        if (data && typeof data === 'object' && !Array.isArray(data)) setGrouped(data)
+        else setError('Fehler beim Laden')
         setLoading(false)
       })
       .catch(() => {
@@ -237,13 +215,11 @@ export default function Home() {
       })
   }, [])
 
-  useEffect(() => { load() }, [load])
-
-  const handleDelete = useCallback((url: string) => {
+  const handleDelete = useCallback((id: number) => {
     setGrouped((prev) => {
       const next: GroupedAPKs = {}
       for (const [proj, apks] of Object.entries(prev)) {
-        const filtered = apks.filter((a) => a.url !== url)
+        const filtered = apks.filter((a) => a.id !== id)
         if (filtered.length > 0) next[proj] = filtered
       }
       return next
@@ -256,7 +232,6 @@ export default function Home() {
 
   return (
     <main style={{ maxWidth: 680, margin: '0 auto', padding: '40px 20px' }}>
-      {/* Header */}
       <div style={{ marginBottom: 36 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
           <span style={{ fontSize: 32 }}>📦</span>
@@ -270,7 +245,6 @@ export default function Home() {
       </div>
 
       {loading && <p style={{ color: '#555', fontSize: 15 }}>Lade APKs…</p>}
-
       {error && <p style={{ color: '#f55', fontSize: 15 }}>{error}</p>}
 
       {isEmpty && (
@@ -288,12 +262,7 @@ export default function Home() {
       )}
 
       {projectNames.map((name) => (
-        <ProjectGroup
-          key={name}
-          name={name}
-          apks={grouped[name]}
-          onDelete={handleDelete}
-        />
+        <ProjectGroup key={name} name={name} apks={grouped[name]} onDelete={handleDelete} />
       ))}
     </main>
   )

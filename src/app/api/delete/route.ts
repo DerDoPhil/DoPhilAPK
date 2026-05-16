@@ -1,17 +1,31 @@
-import { del } from '@vercel/blob'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// No secret required — delete is triggered only from the website UI by the owner.
-// Blob URLs are random hashes and not enumerable without the list API.
+const REPO = 'DerDoPhil/DoPhilAPK'
+
+// Delete is unprotected on the client — the actual GitHub token lives server-side only.
 export async function DELETE(req: NextRequest) {
-  const { url } = await req.json().catch(() => ({}))
-  if (!url || typeof url !== 'string') {
-    return NextResponse.json({ error: 'No url provided' }, { status: 400 })
+  const body = await req.json().catch(() => ({}))
+  const assetId = body?.assetId
+
+  if (!assetId || typeof assetId !== 'number') {
+    return NextResponse.json({ error: 'No assetId provided' }, { status: 400 })
   }
 
-  await del(url)
+  const res = await fetch(`https://api.github.com/repos/${REPO}/releases/assets/${assetId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${process.env.GH_TOKEN}`,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'DoPhilAPK/1.0',
+    },
+  })
+
+  if (!res.ok && res.status !== 204) {
+    return NextResponse.json({ error: 'Delete failed' }, { status: 502 })
+  }
+
   return NextResponse.json({ deleted: true })
 }
